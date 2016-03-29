@@ -46,6 +46,11 @@
 static int enable_debug;
 module_param(enable_debug, int, S_IRUGO | S_IWUSR);
 
+// Do silent reset , not depends on ramdump mode
+// set 0 after silent reset
+static int silent_reset = 0;
+module_param(silent_reset, int, S_IRUGO | S_IWUSR);
+
 /**
  * enum p_subsys_state - state of a subsystem (private)
  * @SUBSYS_NORMAL: subsystem is operating normally
@@ -672,6 +677,12 @@ static void __subsystem_restart_dev(struct subsys_device *dev)
 	spin_unlock_irqrestore(&track->s_lock, flags);
 }
 
+void set_silent_reset(void)
+{
+	silent_reset = 1;
+}
+EXPORT_SYMBOL(set_silent_reset);
+
 int subsystem_restart_dev(struct subsys_device *dev)
 {
 	const char *name;
@@ -687,7 +698,11 @@ int subsystem_restart_dev(struct subsys_device *dev)
 	name = dev->desc->name;
 
 #ifdef CONFIG_SEC_DEBUG_MDM_SEPERATE_CRASH
-	if (!sec_debug_is_enabled_for_ssr())
+	if (silent_reset){
+		pr_err("%s : force silent reset\n",__func__);
+		dev->restart_level = RESET_SUBSYS_COUPLED;
+		silent_reset = 0;
+	} else if (!sec_debug_is_enabled_for_ssr())
 	{
 		dev->restart_level = RESET_SUBSYS_COUPLED;
 	} else {
