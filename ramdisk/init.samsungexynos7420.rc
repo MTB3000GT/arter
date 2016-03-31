@@ -353,6 +353,24 @@ on boot
     chown system system /sys/devices/system/cpu/cpu6/online
     chown system system /sys/devices/system/cpu/cpu7/online
 
+    # Turn on CPU cores
+    write /sys/power/enable_dm_hotplug 0
+    write /sys/devices/system/cpu/cpu1/online 1
+    write /sys/devices/system/cpu/cpu2/online 1
+    write /sys/devices/system/cpu/cpu3/online 1
+    write /sys/devices/system/cpu/cpu4/online 1
+    write /sys/devices/system/cpu/cpu5/online 1
+    write /sys/devices/system/cpu/cpu6/online 1
+    write /sys/devices/system/cpu/cpu7/online 1
+
+    # io_is_busy
+    write /sys/devices/system/cpu/cpu0/cpufreq/interactive/io_is_busy 1
+    write /sys/devices/system/cpu/cpu4/cpufreq/interactive/io_is_busy 1
+    write /sys/devices/virtual/sec/sec_slow/io_is_busy 1
+
+    # ASV
+    chown system system /d/asv_summary
+
     # CPU Idle
     chown system system /sys/module/cpuidle_exynos64/parameters/enable_mask
 
@@ -423,6 +441,9 @@ on boot
     setprop ro.mst.support 1
 
 on fs
+    start fs_mount
+    wait /dev/block/mounted
+
     mount_all /fstab.samsungexynos7420
     setprop ro.crypto.fuse_sdcard true
 
@@ -753,6 +774,15 @@ on property:ro.debuggable=1
 on property:sys.boot_completed=1
     write /proc/sys/vm/dirty_bytes 62914560
     write /proc/sys/vm/dirty_background_bytes 20971520
+    write /sys/devices/system/cpu/cpu1/online 1
+    write /sys/devices/system/cpu/cpu2/online 1
+    write /sys/devices/system/cpu/cpu3/online 1
+    write /sys/devices/system/cpu/cpu4/online 1
+    write /sys/devices/system/cpu/cpu5/online 1
+    write /sys/devices/system/cpu/cpu6/online 1
+    write /sys/devices/system/cpu/cpu7/online 1
+    write /sys/power/enable_dm_hotplug 1
+    start fstrim-service
 
 #
 # start netmgrd
@@ -770,9 +800,8 @@ on property:ro.use_data_netmgrd=true
 
 # LPM
 on property:ro.bootmode=charger
-    mount ext4 /dev/block/platform/15570000.ufs/by-name/SYSTEM /system support_scfs wait ro
-
-on property:ro.bootmode=charger
+    start fs_mount
+    wait /dev/block/mounted
     class_start sec-charger
 
 # Emergency Firmware Update
@@ -784,6 +813,16 @@ service fwup /sbin/ffu -a
     critical
     oneshot
 
+service fs_mount /init.mount.sh
+    user root
+    oneshot
+    disabled
+
+service fstrim-service /init.fstrim.sh
+    disabled
+    user root
+    oneshot
+
 # SecEDS
 service TvoutService_C /system/bin/bintvoutservice
     class main
@@ -791,27 +830,6 @@ service TvoutService_C /system/bin/bintvoutservice
     group graphics
 on property:ro.SecEDS.enable=false
     stop TvoutService_C
-
-# Secure Storage startup
-service secure_storage /system/bin/secure_storage_daemon
-    class core
-    user system
-    group system
-    disabled
-
-on property:ro.securestorage.support=true
-    mkdir /dev/.secure_storage
-    chmod 0711 /dev/.secure_storage
-    chown system system /dev/.secure_storage
-    restorecon -R /dev/.secure_storage
-    start secure_storage
-
-on property:ro.securestorage.knox=true
-    mkdir /dev/.secure_storage
-    chmod 0711 /dev/.secure_storage
-    chown system system /dev/.secure_storage
-    restorecon -R /dev/.secure_storage
-    start secure_storage
 
 # umount service
 service umount_service /system/bin/umount -D /preload

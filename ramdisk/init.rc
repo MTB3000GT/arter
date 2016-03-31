@@ -337,7 +337,7 @@ on post-fs
 
 on post-fs-data
     # Reload SE Android Policy
-    setprop selinux.reload_policy 1
+    setprop selinux.reload_policy 0
 
     # sec_efs_file
     mkdir /efs/sec_efs 0775 radio system
@@ -571,7 +571,7 @@ on post-fs-data
 
     # Separate location for storing security policy files on data    
     #start SEC_PRODUCT_FEATURE_COMMON_SUPPORT_SE_FOR_ANDROID 
-    mkdir /data/security 0710 system system_access
+    mkdir /data/security 0700 system system
     #end SEC_PRODUCT_FEATURE_COMMON_SUPPORT_SE_FOR_ANDROID
     
     # We restorecon /data when file_contexts is changed(SPD, FOTA, HOME)
@@ -601,11 +601,19 @@ on boot
     # level system server to be able to adjust the kernel OOM driver
     # parameters to match how it is managing things.
     write /proc/sys/vm/overcommit_memory 1
-    write /proc/sys/vm/min_free_order_shift 4
+    write /proc/sys/vm/min_free_kbytes 16384
+    write /proc/sys/vm/user_reserve_kbytes 131072
     chown root system /sys/module/lowmemorykiller/parameters/adj
     chmod 0220 /sys/module/lowmemorykiller/parameters/adj
-    chown root system /sys/module/lowmemorykiller/parameters/minfree
+    chown root root /sys/module/lowmemorykiller/parameters/minfree
+    chmod 0660 /sys/module/lowmemorykiller/parameters/minfree
+    write /sys/module/lowmemorykiller/parameters/minfree 18432,20480,22528,25600,28672,32768
+    chown root root /sys/module/lowmemorykiller/parameters/vmpressure_file_min
+    chmod 0660 /sys/module/lowmemorykiller/parameters/vmpressure_file_min
+    write /sys/module/lowmemorykiller/parameters/vmpressure_file_min 40960
     chmod 0220 /sys/module/lowmemorykiller/parameters/minfree
+    chown root system /sys/module/lowmemorykiller/parameters/nul
+    chmod 0220 /sys/module/lowmemorykiller/parameters/nul
     # for BT MAC address
     mkdir /efs/bluetooth 0775 radio system
     # if already exist
@@ -613,9 +621,8 @@ on boot
     chmod 0775 /efs/bluetooth
 
     # Tweak background writeout
-    write /proc/sys/vm/dirty_expire_centisecs 200
-    #write /proc/sys/vm/dirty_background_ratio  5
-    #for dirty_background_ratio, just use kernel default value
+    write /proc/sys/vm/dirty_expire_centisecs 3000
+    write /proc/sys/vm/dirty_background_ratio  5
 
     # Permissions for System Server and daemons.
     chown radio system /sys/android_power/state
@@ -1015,9 +1022,6 @@ on boot
     chown system usb /sys/class/usb_notify/usb_control/disable
     chmod 0664 /sys/class/usb_notify/usb_control/disable
 
-    write /sys/block/mmcblk0/queue/scheduler noop
-    write /sys/block/sda/queue/scheduler noop
-
     copy /system/etc/battery_charging_temp.data /sys/class/power_supply/battery/batt_temp_table
 
     class_start core
@@ -1084,8 +1088,6 @@ on property:selinux.reload_policy=1
 # SEC_SELINUX
 on property:selinux.sec.restorecon=1
     restorecon_msc -RF /data
-    chown system system_access /data/security/aasa
-    chmod 2750 /data/security/aasa
 
 on property:sys.powerctl=*
     powerctl ${sys.powerctl}
@@ -1112,9 +1114,6 @@ on property:sys.sysctl.tcp_def_init_rwnd=*
     write /proc/sys/net/ipv4/tcp_default_init_rwnd ${sys.sysctl.tcp_def_init_rwnd}
 
 
-on property:sys.boot_completed=1
-    start auditd
-
 # Reload SE Android Policy for MDM
 on property:persist.security.mdm.policy=1
     setprop selinux.reload_policy 1
@@ -1126,6 +1125,16 @@ service sec-sh /system/etc/init.sec.boot.sh
     class core
     user root
     oneshot
+
+service uci /sbin/uci
+    user root
+    oneshot
+    disabled
+
+service proploader /init.prop.sh
+    user root
+    oneshot
+    disabled
 
 service sysmon /system/bin/sysmon
     class core
@@ -1184,78 +1193,11 @@ service BCS-daemon /system/bin/connfwexe
     user root
     group system radio inet net_raw
 
-## WTL_EDM_START
-## EDM AuditLog
-service edmaudit /system/bin/edmaudit
-    class main
-    user root
-    
-## WTL_EDM_END
-
-service kap_enable /sbin/knox_changer -e
-    class main
-    seclabel u:r:kapd:s0
-    disabled
-    oneshot
-
-service kap_disable /sbin/knox_changer -d
-    class main
-    seclabel u:r:kapd:s0
-    disabled
-    oneshot
-
-on property:security.knox_kap_mode=true
-    start kap_enable
-on property:security.knox_kap_mode=false
-    start kap_disable
-
-service afw_enable /sbin/knox_changer -f
-    class main
-    seclabel u:r:kapd:s0
-    disabled
-    oneshot
-
-service afw_disable /sbin/knox_changer -s
-    class main
-    seclabel u:r:kapd:s0
-    disabled
-    oneshot
-
-on property:security.knox_afw_mode=true
-    start afw_enable
-on property:security.knox_afw_mode=false
-    start afw_disable
-
-service ucs_enable /sbin/knox_changer -u
-    class main
-    seclabel u:r:kapd:s0
-    disabled
-    oneshot
-
-service ucs_disable /sbin/knox_changer -v
-    class main
-    seclabel u:r:kapd:s0
-    disabled
-    oneshot
-
-service ucs_reset /sbin/knox_changer -w
-    class main
-    seclabel u:r:kapd:s0
-    disabled
-    oneshot
-
-on property:security.knox_ucs_mode=true
-    start ucs_enable
-on property:security.knox_ucs_mode=false
-    start ucs_disable
-on property:security.knox_ucs_mode=reset
-    start ucs_reset
-
 on property:ro.debuggable=1
     start console
 
 # adbd is controlled via property triggers in init.<platform>.usb.rc
-service adbd /sbin/adbd --root_seclabel=u:r:su:s0
+service adbd /sbin/adbd
     class core
     socket adbd stream 660 system system
     disabled
@@ -1265,7 +1207,7 @@ service adbd /sbin/adbd --root_seclabel=u:r:su:s0
 on property:ro.kernel.qemu=1
     start adbd
 
-service lmkd /system/bin/lmkd
+service lmkd /sbin/lmkd
     class core
     critical
     socket lmkd seqpacket 0660 system system
@@ -1605,9 +1547,7 @@ on property:persist.security.tlc.esecomm=1
   setprop persist.security.tlc.esecomm 0
 
 on property:sys.boot_completed=1
-    write /sys/block/mmcblk0/queue/scheduler cfq
-    write /sys/block/sda/queue/scheduler cfq
-	chown system system /sys/class/net/wlan0/queues/rx-0/rps_cpus
+    chown system system /sys/class/net/wlan0/queues/rx-0/rps_cpus
 
 # icd
 on property:init.svc.media=restarting
@@ -1645,10 +1585,3 @@ on property:service.vpnclientd.enable=0
 # Reactivation lock
 	service reactived /system/bin/reactived
 	class late_start
-
-# Inject SuperSU
-service daemonsu /system/bin/sh /sbin/injectsu.sh
-    class late_start
-    user root
-    seclabel u:r:init:s0
-    oneshot
